@@ -67,10 +67,6 @@ static void oled_start_dma(void)
 
     OLED_DC_HIGH();
 
-    /* 复位 SPI 外设，清除阻塞命令可能留下的脏状态 */
-    HAL_SPI_DeInit(&OLED_SPI_HANDLE);
-    HAL_SPI_Init(&OLED_SPI_HANDLE);
-
     if (OLED_SPI_HANDLE.State == HAL_SPI_STATE_READY) {
         oled_dma_busy = 1;
         if (HAL_SPI_Transmit_DMA(&OLED_SPI_HANDLE, oled_send_buf, OLED_BUFFER_SIZE) != HAL_OK) {

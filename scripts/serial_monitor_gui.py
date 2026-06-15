@@ -367,14 +367,14 @@ class AC02Panel:
         self.fig.subplots_adjust(left=0.06, right=0.92, top=0.94, bottom=0.12, hspace=0.35)
 
         gs = self.fig.add_gridspec(3, 1, height_ratios=[1, 1, 1])
-        self.ax_v  = self.fig.add_subplot(gs[0])
-        self.ax_m  = self.fig.add_subplot(gs[1])
-        self.ax_f  = self.fig.add_subplot(gs[2])
+        self.ax_v = self.fig.add_subplot(gs[0])
+        self.ax_m = self.fig.add_subplot(gs[1])
+        self.ax_f = self.fig.add_subplot(gs[2])
 
         for ax, label, color in [
-            (self.ax_v, "Vrms / Vref (V)", _GREEN),
-            (self.ax_m, "Modulation",       _MAGENTA),
-            (self.ax_f, "Frequency (Hz)",   _YELLOW),
+            (self.ax_v, "Voltage (V)", _GREEN),
+            (self.ax_m, "Modulation",  _MAGENTA),
+            (self.ax_f, "Freq (Hz)",   _YELLOW),
         ]:
             ax.set_facecolor(_BG_LIGHT)
             ax.set_ylabel(label, fontsize=8, color=color)
@@ -382,6 +382,13 @@ class AC02Panel:
             ax.tick_params(labelsize=7)
 
         self.ax_f.set_xlabel("Time (s)", fontsize=8, color=_FG_DIM)
+
+        # Pre-create line objects — update data only, never clear axes
+        self._line_vrms, = self.ax_v.plot([], [], color=_GREEN, linewidth=1.4, label="Vrms")
+        self._line_vref, = self.ax_v.plot([], [], color=_BLUE,   linewidth=1.4, label="Vref")
+        self._line_mod,  = self.ax_m.plot([], [], color=_MAGENTA, linewidth=1.4)
+        self._line_freq, = self.ax_f.plot([], [], color=_YELLOW,  linewidth=1.4)
+        self.ax_v.legend(loc="upper right", fontsize=7, framealpha=0.3)
 
         self.canvas = FigureCanvasTkAgg(self.fig, master=frame)
         self.canvas.get_tk_widget().pack(fill="both", expand=True)
@@ -663,39 +670,36 @@ class AC02Panel:
         self._vars["KI"].set(f"{self.vals['KI']:.2f}")
 
     def _update_plots(self):
-        if not any(self.ts[k][0] for k in self.ts):
+        if not self.ts["Vrms"][0]:
             return
 
-        t0 = self.ts["Vrms"][0][0] if self.ts["Vrms"][0] else time.time()
+        if not getattr(self, '_chart_started', False):
+            self._chart_started = True
+            self._log(f"[CHART] Rendering started, {len(self.ts['Vrms'][0])} points")
 
-        charts = [
-            (self.ax_v, [("Vrms", _GREEN, "Vrms"), ("Vref", _BLUE, "Vref")], "Voltage (V)", _GREEN),
-            (self.ax_m, [("Mod", _MAGENTA, None)],                          "Modulation",   _MAGENTA),
-            (self.ax_f, [("Freq", _YELLOW, None)],                          "Freq (Hz)",    _YELLOW),
+        t0 = self.ts["Vrms"][0][0]
+
+        pairs = [
+            (self._line_vrms, self.ax_v, "Vrms"),
+            (self._line_vref, self.ax_v, "Vref"),
+            (self._line_mod,  self.ax_m, "Mod"),
+            (self._line_freq, self.ax_f, "Freq"),
         ]
 
-        for ax, series, ylabel, ycolor in charts:
-            ax.clear()
-            ax.set_facecolor(_BG_LIGHT)
-            ax.set_ylabel(ylabel, fontsize=8, color=ycolor)
-            ax.grid(True, alpha=0.25, color=_FG_DIM)
-            ax.tick_params(labelsize=7)
+        for line, ax, key in pairs:
+            times, data = self.ts[key]
+            if not times:
+                continue
+            t_rel = [t - t0 for t in times]
+            line.set_data(t_rel, data)
 
-            has_legend = False
-            for key, color, label in series:
-                times, data = self.ts[key]
-                if not times:
-                    continue
-                t_rel = [t - t0 for t in times]
-                ax.plot(t_rel, data, color=color, linewidth=1.4, label=label)
-                ax.fill_between(t_rel, data, alpha=0.08, color=color)
-                if label:
-                    has_legend = True
-            if has_legend:
-                ax.legend(loc="upper right", fontsize=7, framealpha=0.3)
+            ymin = min(data)
+            ymax = max(data)
+            margin = max((ymax - ymin) * 0.15, 0.01)
+            ax.set_xlim(t_rel[0], t_rel[-1])
+            ax.set_ylim(ymin - margin, ymax + margin)
 
-        self.ax_f.set_xlabel("Time (s)", fontsize=8, color=_FG_DIM)
-        self.canvas.draw()
+        self.canvas.draw_idle()
 
     # ── Shutdown ─────────────────────────────────────────────────────────────
 
