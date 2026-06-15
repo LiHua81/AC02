@@ -149,6 +149,7 @@ class SimSerial:
 
 class AC02Panel:
     MAX_PLOT_POINTS = 600   # ~30 s at 20 Hz
+    CHART_WINDOW = 10       # seconds to display
 
     def __init__(self, port: str, baud: int = 115200, simulate: bool = False):
         self.port = port
@@ -168,7 +169,7 @@ class AC02Panel:
             "Mod": 0.0, "KP": 0.2, "KI": 0.1,
         }
         # time-series buffers
-        self.ts = {k: ([], []) for k in ("Vrms", "Mod", "Freq")}
+        self.ts = {k: ([], []) for k in ("Vrms", "Vref", "Mod", "Freq")}
 
         self.root = tk.Tk()
         self.root.title("AC02 DC-AC Inverter Monitor")
@@ -362,32 +363,31 @@ class AC02Panel:
                               bg=_BG, fg=_YELLOW, bd=1, relief="groove")
         frame.pack(fill="both", expand=True, pady=(0, 6))
 
-        self.fig = Figure(figsize=(9, 3.6), dpi=90)
+        self.fig = Figure(figsize=(9, 2.8), dpi=90)
         self.fig.patch.set_facecolor(_BG)
-        self.fig.subplots_adjust(left=0.06, right=0.92, top=0.94, bottom=0.12, hspace=0.35)
+        self.fig.subplots_adjust(left=0.06, right=0.92, top=0.94, bottom=0.14, hspace=0.3)
 
-        gs = self.fig.add_gridspec(3, 1, height_ratios=[1, 1, 1])
+        gs = self.fig.add_gridspec(2, 1, height_ratios=[1, 1])
         self.ax_v = self.fig.add_subplot(gs[0])
         self.ax_m = self.fig.add_subplot(gs[1])
-        self.ax_f = self.fig.add_subplot(gs[2])
 
         for ax, label, color in [
             (self.ax_v, "Voltage (V)", _GREEN),
             (self.ax_m, "Modulation",  _MAGENTA),
-            (self.ax_f, "Freq (Hz)",   _YELLOW),
         ]:
             ax.set_facecolor(_BG_LIGHT)
             ax.set_ylabel(label, fontsize=8, color=color)
             ax.grid(True, alpha=0.25, color=_FG_DIM)
             ax.tick_params(labelsize=7)
 
-        self.ax_f.set_xlabel("Time (s)", fontsize=8, color=_FG_DIM)
+        self.ax_v.set_ylim(0, 22)
+        self.ax_m.set_ylim(0, 1.05)
+        self.ax_m.set_xlabel("Time (s)", fontsize=8, color=_FG_DIM)
 
         # Pre-create line objects — update data only, never clear axes
         self._line_vrms, = self.ax_v.plot([], [], color=_GREEN, linewidth=1.4, label="Vrms")
         self._line_vref, = self.ax_v.plot([], [], color=_BLUE,   linewidth=1.4, label="Vref")
         self._line_mod,  = self.ax_m.plot([], [], color=_MAGENTA, linewidth=1.4)
-        self._line_freq, = self.ax_f.plot([], [], color=_YELLOW,  linewidth=1.4)
         self.ax_v.legend(loc="upper right", fontsize=7, framealpha=0.3)
 
         self.canvas = FigureCanvasTkAgg(self.fig, master=frame)
@@ -539,7 +539,7 @@ class AC02Panel:
         self._record_sample(time.time())
 
     def _record_sample(self, now):
-        for key in ("Vrms", "Mod", "Freq"):
+        for key in ("Vrms", "Vref", "Mod", "Freq"):
             times, data = self.ts[key]
             times.append(now)
             data.append(self.vals[key])
@@ -677,27 +677,25 @@ class AC02Panel:
             self._chart_started = True
             self._log(f"[CHART] Rendering started, {len(self.ts['Vrms'][0])} points")
 
-        t0 = self.ts["Vrms"][0][0]
+        now = self.ts["Vrms"][0][-1]
+        t_start = now - self.CHART_WINDOW
 
         pairs = [
             (self._line_vrms, self.ax_v, "Vrms"),
             (self._line_vref, self.ax_v, "Vref"),
             (self._line_mod,  self.ax_m, "Mod"),
-            (self._line_freq, self.ax_f, "Freq"),
         ]
 
         for line, ax, key in pairs:
             times, data = self.ts[key]
-            if not times:
+            # filter to visible window
+            vis = [(t, d) for t, d in zip(times, data) if t >= t_start]
+            if not vis:
                 continue
-            t_rel = [t - t0 for t in times]
-            line.set_data(t_rel, data)
-
-            ymin = min(data)
-            ymax = max(data)
-            margin = max((ymax - ymin) * 0.15, 0.01)
-            ax.set_xlim(t_rel[0], t_rel[-1])
-            ax.set_ylim(ymin - margin, ymax + margin)
+            t_rel = [t - t_start for t, _ in vis]
+            vals  = [d for _, d in vis]
+            line.set_data(t_rel, vals)
+            ax.set_xlim(0, self.CHART_WINDOW)
 
         self.canvas.draw_idle()
 
