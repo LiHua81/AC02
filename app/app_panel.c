@@ -91,8 +91,6 @@ static void oled_draw(void) {
 void panel_init(void) {
     OLED_Init();
     oled_draw();
-    OLED_SendBuffer();
-    OLED_SwapAndStart();
 }
 
 static void parse_uart_command(const char *line) {

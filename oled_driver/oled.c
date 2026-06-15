@@ -73,7 +73,9 @@ static void oled_start_dma(void)
 
     if (OLED_SPI_HANDLE.State == HAL_SPI_STATE_READY) {
         oled_dma_busy = 1;
-        HAL_SPI_Transmit_DMA(&OLED_SPI_HANDLE, oled_send_buf, OLED_BUFFER_SIZE);
+        if (HAL_SPI_Transmit_DMA(&OLED_SPI_HANDLE, oled_send_buf, OLED_BUFFER_SIZE) != HAL_OK) {
+            oled_dma_busy = 0;
+        }
     }
 }
 
@@ -234,18 +236,28 @@ int OLED_IsNewFrame(void)
 
 void OLED_SwapAndStart(void)
 {
-    /* 主循环调用：交换缓冲 + 启动 DMA
-     * 只在主循环（线程模式）执行，不会被任何中断抢占导致竞态 */
+    if (!OLED_IsReady()) {
+        return;
+    }
+
+    uint32_t primask = __get_PRIMASK();
+    __disable_irq();
+
     oled_new_frame = 0;
     uint8_t *tmp = OLED_Buffer;
     OLED_Buffer = oled_send_buf;
     oled_send_buf = tmp;
+
+    if (!primask) {
+        __enable_irq();
+    }
+
     oled_start_dma();
 }
 
 int OLED_IsReady(void)
 {
-    return OLED_SPI_HANDLE.State == HAL_SPI_STATE_READY;
+    return (oled_dma_busy == 0) && (OLED_SPI_HANDLE.State == HAL_SPI_STATE_READY);
 }
 
 void OLED_TestFullScreen(void)
